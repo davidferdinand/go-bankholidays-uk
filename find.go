@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 type BankHolidays struct {
@@ -28,11 +29,12 @@ type Region struct {
 }
 
 type Events struct {
-	Title   string `json:"title"`
-	Date    string `json:"date"`
-	Notes   string `json:"notes"`
-	Bunting bool   `json:"bunting"`
+	Title string `json:"title"`
+	Date  string `json:"date"`
+	// Notes string `json:"notes"`
 }
+
+var layout = "2006-01-02"
 
 func getRegions(b *BankHolidays) []Region {
 	regions := make([]Region, 0)
@@ -55,6 +57,18 @@ func getRegions(b *BankHolidays) []Region {
 }
 
 func Find(division string) []Events {
+	allBankHolidays, err := getBankHolidays()
+
+	fmt.Println(err)
+
+	regions := getRegions(allBankHolidays)
+
+	requestedRegion := getEventsByRegion(regions, division)
+
+	return requestedRegion
+}
+
+func getBankHolidays() (*BankHolidays, error) {
 	res, err := http.Get("https://www.gov.uk/bank-holidays.json")
 	if err != nil {
 		panic(err.Error())
@@ -65,13 +79,84 @@ func Find(division string) []Events {
 		panic(err.Error())
 	}
 
-	a, err := getBankHolidays([]byte(body))
+	var a = new(BankHolidays)
 
-	regions := getRegions(a)
+	err = json.Unmarshal(body, &a)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+	return a, err
+}
 
-	requestedRegion := getEventsByRegion(regions, division)
+func FindFrom(division string, from string) ([]Events, error) {
+	requestedRegion := Find(division)
 
-	return requestedRegion
+	var fromEvents []Events
+
+	fromTime, err := time.Parse(layout, from)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range requestedRegion {
+		eventTime, err := time.Parse(layout, r.Date)
+		if err != nil {
+			return nil, err
+		}
+		if eventTime.After(fromTime) {
+			fromEvents = append(fromEvents, r)
+		}
+	}
+	return fromEvents, err
+}
+
+func FindTo(division string, to string) ([]Events, error) {
+	requestedRegion := Find(division)
+
+	var toEvents []Events
+
+	toTime, err := time.Parse(layout, to)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range requestedRegion {
+		eventTime, err := time.Parse(layout, r.Date)
+		if err != nil {
+			return nil, err
+		}
+		if eventTime.Before(toTime) {
+			toEvents = append(toEvents, r)
+		}
+	}
+	return toEvents, err
+}
+
+func FindBetween(division string, from string, to string) ([]Events, error) {
+	requestedRegion := Find(division)
+
+	var betweenEvents []Events
+
+	toTime, err := time.Parse(layout, to)
+	if err != nil {
+		return nil, err
+	}
+
+	fromTime, err := time.Parse(layout, from)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range requestedRegion {
+		eventTime, err := time.Parse(layout, r.Date)
+		if err != nil {
+			return nil, err
+		}
+		if eventTime.After(fromTime) && eventTime.Before(toTime) {
+			betweenEvents = append(betweenEvents, r)
+		}
+	}
+	return betweenEvents, err
 }
 
 func getEventsByRegion(regions []Region, name string) []Events {
@@ -81,13 +166,4 @@ func getEventsByRegion(regions []Region, name string) []Events {
 		}
 	}
 	return nil
-}
-
-func getBankHolidays(body []byte) (*BankHolidays, error) {
-	var a = new(BankHolidays)
-	err := json.Unmarshal(body, &a)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	return a, err
 }
